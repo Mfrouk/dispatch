@@ -1,2 +1,1 @@
-# dispatch
- this script was converted from QBcore to ESX LEGACY
+Matching MDT: https://github.com/Mfrouk/mdt-esx
