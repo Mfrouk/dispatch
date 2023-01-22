@@ -51,17 +51,17 @@ function timeAgo(dateParam) {
     const isThisYear = today.getFullYear() === date.getFullYear();
 
     if (seconds < 5) {
-        return 'Just Now';
+        return 'Právě teď';
     } else if (seconds < 60) {
-        return `${seconds} Seconds ago`;
+        return `${seconds} sekund zpět`;
     } else if (seconds < 90) {
-        return 'About a minute ago';
+        return 'minut zpět';
     } else if (minutes < 60) {
-        return `${minutes} Minutes ago`;
+        return `${minutes} minut zpět`;
     } else if (isToday) {
-        return getFormattedDate(date, 'Today');
+        return getFormattedDate(date, 'Dnes');
     } else if (isYesterday) {
-        return getFormattedDate(date, 'Yesterday');
+        return getFormattedDate(date, 'Včera');
     } else if (isThisYear) {
         return getFormattedDate(date, false, true);
     }
@@ -89,8 +89,8 @@ function addNewCall(callID, timer, info, isPolice) {
     }
 
     if (info['gender']) {
-        let gender = "Male"
-        if (info['gender'] == 0 || info['gender'] == 2) { gender = "Female" }
+        let gender = "Muž"
+        if (info['gender'] == 0 || info['gender'] == 2) { gender = "Žena" }
         DispatchItem += `<div class="call-bottom-info"><span class="fas fa-genderless"></span>${gender}</div>`
     }
 

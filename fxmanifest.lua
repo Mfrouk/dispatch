@@ -18,3 +18,10 @@ files {
     'ui/app.js',
     'ui/style.css',
 }
+
+export "StoreRobbery"
+export "FleecaRobbery"
+export "PaletoRobbery"
+export "PacificRobbery"
+export "VangelicoRobbery"
+export "SuspiciousActivity"

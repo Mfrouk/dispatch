@@ -19,6 +19,7 @@ AddEventHandler("dispatch:svNotify", function(data)
     TriggerClientEvent('dispatch:clNotify', -1, data, newId, source)
     if data['dispatchCode'] == '911' or data['dispatchCode'] == '311' then
         TriggerClientEvent('erp-dispatch:setBlip', -1, data['dispatchCode'], vector3(data['origin']['x'], data['origin']['y'], data['origin']['z']), newId)
+        TriggerClientEvent("mdt:client:dashboardCalls", -1, data)
     end
 end)
 
@@ -35,6 +36,8 @@ AddEventHandler("dispatch:addUnit", function(callid, player, cb)
         end
 	local callsign = exports['mdt']:GetCallsign(player.identifier)
         if player.job.name == 'police' then
+            table.insert(calls[callid]['units'], { cid = player.identifier, fullname = player.name, job = 'Police', callsign = callsign[1].callsign	})
+        elseif player.job.name == 'sheriff' then
             table.insert(calls[callid]['units'], { cid = player.identifier, fullname = player.name, job = 'Police', callsign = callsign[1].callsign	})
         elseif player.job.name == 'ambulance' then
             table.insert(calls[callid]['units'], { cid = player.identifier, fullname = player.name, job = 'EMS', callsign = callsign[1].callsign })
@@ -78,8 +81,8 @@ end)
 
 RegisterCommand('togglealerts', function(source, args, user)
 	local source = source
-	local job = ESX.GetPlayerFromId(source).job
-	if job.name == 'police' or job.name == 'ambulance' or job.name == 'pa' or job.name == 'cmmc' then
+	local job = ESX.GetPlayerFromId(source).getJob()
+	if job.name == 'police' or job.name == 'ambulance' or job.name == 'sheriff' or job.name == 'cmmc' then
 		TriggerClientEvent('erp-dispatch:manageNotifs', source, args[1])
 	end
 end)
@@ -103,6 +106,48 @@ end)
 RegisterNetEvent('erp-dispatch:vehiclecrash')
 AddEventHandler('erp-dispatch:vehiclecrash', function(sentCoords)
     TriggerClientEvent('erp-dispatch:vehiclecrash', -1, sentCoords)
+end)
+
+-- erp-dispatch:storerobbery
+
+RegisterNetEvent('erp-dispatch:storerobbery')
+AddEventHandler('erp-dispatch:storerobbery', function(sentCoords)
+    TriggerClientEvent('erp-dispatch:storerobbery', -1, sentCoords)
+end)
+
+-- erp-dispatch:fleecarobbery
+
+RegisterNetEvent('erp-dispatch:fleecarobbery')
+AddEventHandler('erp-dispatch:fleecarobbery', function(sentCoords)
+    TriggerClientEvent('erp-dispatch:fleecarobbery', -1, sentCoords)
+end)
+
+-- erp-dispatch:paletorobbery
+
+RegisterNetEvent('erp-dispatch:paletorobbery')
+AddEventHandler('erp-dispatch:paletorobbery', function(sentCoords)
+    TriggerClientEvent('erp-dispatch:paletorobbery', -1, sentCoords)
+end)
+
+-- erp-dispatch:pacificrobbery
+
+RegisterNetEvent('erp-dispatch:pacificrobbery')
+AddEventHandler('erp-dispatch:pacificrobbery', function(sentCoords)
+    TriggerClientEvent('erp-dispatch:pacificrobbery', -1, sentCoords)
+end)
+
+-- erp-dispatch:vangelicorobbery
+
+RegisterNetEvent('erp-dispatch:vangelicorobbery')
+AddEventHandler('erp-dispatch:vangelicorobbery', function(sentCoords)
+    TriggerClientEvent('erp-dispatch:vangelicorobbery', -1, sentCoords)
+end)
+
+-- erp-dispatch:suspiciousactivity
+
+RegisterNetEvent('erp-dispatch:suspiciousactivity')
+AddEventHandler('erp-dispatch:suspiciousactivity', function(sentCoords)
+    TriggerClientEvent('erp-dispatch:suspiciousactivity', -1, sentCoords)
 end)
 
 -- erp-dispatch:houserobbery
@@ -142,7 +187,6 @@ RegisterNetEvent('erp-dispatch:g6')
 AddEventHandler('erp-dispatch:g6', function(sentCoords)
     TriggerClientEvent('erp-dispatch:g6', -1, sentCoords)
 end)
-
 
 RegisterNetEvent('erp-dispatch:carboosting')
 AddEventHandler('erp-dispatch:carboosting', function(sentCoords, vehicle, alert)
@@ -201,4 +245,13 @@ end)
 RegisterNetEvent('erp-dispatch:emsalertB')
 AddEventHandler('erp-dispatch:emsalertB', function(sentCoords)
     TriggerClientEvent('erp-dispatch:emsalertB', -1, sentCoords)
+end)
+
+ESX.RegisterServerCallback('dispatch:getplayerdatatos', function(src, cb)
+    local xPlayer = ESX.GetPlayerFromId(src)
+    local data = {
+        name = xPlayer.getName(),
+        phonenumber = exports["lb-phone"]:GetEquippedPhoneNumber(xPlayer.source)
+    }
+   cb(data)
 end)

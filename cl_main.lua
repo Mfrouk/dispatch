@@ -24,18 +24,10 @@ huntingZone:onPlayerInOut(function(isPointInside, point)
 end)
 
 
-ESX = nil
-
-Citizen.CreateThread(function()
-    while ESX == nil do
-        TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
-        Citizen.Wait(0)
-    end
-end)
-
+ESX = exports["es_extended"]:getSharedObject()
 
 CreateThread(function() -- Use this only if you think/plan on restarting the resource often.
-    while PlayerData['cid'] == nil do
+    while PlayerData == nil do
       PlayerData = ESX.GetPlayerData()
       Wait(5000)
     end
@@ -45,22 +37,34 @@ end)
 local currentCallSign = ""
 local playerPed, playerCoords = PlayerPedId(), vec3(0, 0, 0)
 local currentVehicle, inVehicle, currentlyArmed, currentWeapon = nil, false, false, `WEAPON_UNARMED`
+local playerosdatos = {}
 
 PlayerData = {}
 
-RegisterNetEvent('echorp:playerSpawned') -- Use this to grab player info on spawn.
-AddEventHandler('echorp:playerSpawned', function(sentData) PlayerData = sentData end)
+RegisterNetEvent('esx:playerLoaded', function(xPlayer)
+    PlayerData = xPlayer
+    PlayerLoaded = true
+    
+    ESX.TriggerServerCallback('dispatch:getplayerdatatos', function(data)
+        playerosdatos = data
+    end)
+end)
 
 RegisterNetEvent('echorp:updateinfo')
 AddEventHandler('echorp:updateinfo', function(toChange, targetData) 
     PlayerData[toChange] = targetData
 end)
 
-RegisterNetEvent('echorp:doLogout') -- Use this to logout.
-AddEventHandler('echorp:doLogout', function(sentData) 
+RegisterNetEvent('esx:onPlayerLogout', function() 
     PlayerData = {}
+    PlayerLoaded = false
     currentCallSign = ""
     currentVehicle, inVehicle, currentlyArmed, currentWeapon = nil, false, false, `WEAPON_UNARMED`
+end)
+
+RegisterNetEvent('esx:setJob')
+AddEventHandler('esx:setJob', function(job)
+	PlayerData.job = job
 end)
 
 local colors = {
@@ -571,7 +575,7 @@ CreateThread(function() -- Gun Shots
                     if not inVehicle and not shouldAlert then
                         if math.random(10) > 5 then
                             cooldownSMD = GetGameTimer() + math.random(45000,60000) -- 20 => 25 Seconds.
-                        elseif not PlayerData.job.isPolice then
+                        elseif not isPolice() then
                             local closestNPC = GetClosestNPC(playerCoords, 25.0, 'armed')
                             if closestNPC and DoesEntityExist(closestNPC) then
                                 cooldownSMD = GetGameTimer() + math.random(60000,90000) -- 20 => 25 Seconds.
@@ -619,7 +623,7 @@ function ArmedPlayer() -- When aiming weapon.
         z = currentPos.z
         },
         dispatchMessage = "Brandishing",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
     })
 
 end
@@ -627,28 +631,37 @@ end
 RegisterNetEvent('erp-dispatch:gunshotAlert')
 AddEventHandler('erp-dispatch:gunshotAlert', function(sentCoords, isAuto, isCop)
     if sentCoords then
-        if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then
+        if isPolice() then
             local blipAlpha = 200
-            local gunshotBlip = AddBlipForRadius(sentCoords, 75.0)
+            local gunshotBlip = AddBlipForCoord(sentCoords)
             SetBlipHighDetail(gunshotBlip, true)
             if isCop then
-                SetBlipColour(gunshotBlip, 2) -- Green
+                gunshotBlipblipclr = 2
+                gunshotBlipblipcom = 'PD/SH'
+                gunshotBlipblipspritos = 567
             elseif isAuto then
-                SetBlipColour(gunshotBlip, 3) -- Blue
+                gunshotBlipblipclr = 3
+                gunshotBlipblipcom = ''
+                gunshotBlipblipspritos = 229
             else
-                SetBlipColour(gunshotBlip, 1) -- Red
+                gunshotBlipblipclr = 1
+                gunshotBlipblipcom = ''
+                gunshotBlipblipspritos = 110
             end
 
+            SetBlipScale(gunshotBlip, 1.3)
+			SetBlipSprite(gunshotBlip, gunshotBlipblipspritos)
+			SetBlipColour(gunshotBlip, gunshotBlipblipclr)
             SetBlipAlpha(gunshotBlip, blipAlpha)
             SetBlipAsShortRange(gunshotBlip, true)
             BeginTextCommandSetBlipName("STRING")
-			AddTextComponentString('10-60 Shots Fired')
+			AddTextComponentString("10-13 Střelba "..gunshotBlipblipcom..".")
 			EndTextCommandSetBlipName(gunshotBlip)
             PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
             
             CreateThread(function()
                 while blipAlpha ~= 0 and DoesBlipExist(gunshotBlip) do
-                    Citizen.Wait(math.random(20, 30) * 4)
+                    Citizen.Wait(90 * 4)
                     blipAlpha = blipAlpha - 1
                     SetBlipAlpha(gunshotBlip, blipAlpha)
     
@@ -693,7 +706,7 @@ end)
 RegisterNetEvent('erp-dispatch:combatAlert')
 AddEventHandler('erp-dispatch:combatAlert', function(sentCoords)
     if sentCoords then
-        if (ESX.GetPlayerData().job.name == 'police') and ESX.GetPlayerData().job.duty == 1 then
+        if isPolice() then
             local alpha = 250
             local combatBlip = AddBlipForCoord(sentCoords)
 
@@ -729,7 +742,7 @@ RegisterNetEvent('erp-dispatch:armedperson')
 AddEventHandler('erp-dispatch:armedperson', function(sentCoords)
     if sentCoords then
         
-        if (ESX.GetPlayerData().job.name == 'police') and ESX.GetPlayerData().job.duty == 1 then
+        if isPolice() then
             local alpha = 250
             local armedperson = AddBlipForCoord(sentCoords)
 
@@ -771,17 +784,17 @@ AddEventHandler('erp-dispatch:manageNotifs', function(sentSetting)
     if wantedSetting == "on" then
         disableNotis = false
         disableNotifSounds = false
-        exports['erp_notifications']:SendAlert('inform', 'Dispatch enabled.')
+        --exports['erp_notifications']:SendAlert('inform', 'Dispatch enabled.')
     elseif wantedSetting == "off" then
         disableNotis = true
         disableNotifSounds = true
-        exports['erp_notifications']:SendAlert('inform', 'Dispatch disabled.')
+        --exports['erp_notifications']:SendAlert('inform', 'Dispatch disabled.')
     elseif wantedSetting == "mute" then
         disableNotis = false
         disableNotifSounds = true
-        exports['erp_notifications']:SendAlert('inform', 'Dispatch muted.')
+       -- exports['erp_notifications']:SendAlert('inform', 'Dispatch muted.')
     else
-        exports['erp_notifications']:SendAlert('inform', 'Please choose to have dispatch as "on", "off" or "mute".', 5000)
+       -- exports['erp_notifications']:SendAlert('inform', 'Please choose to have dispatch as "on", "off" or "mute".', 5000)
     end
 end)
 
@@ -819,7 +832,7 @@ end)
 RegisterNetEvent('civilian:alertPolice')
 AddEventHandler("civilian:alertPolice",function(basedistance,alertType,objPassed,isGunshot,isHunting,sentWeapon)
     if ESX.GetPlayerData().job == nil then return end;
-    if (ESX.GetPlayerData().job.name == 'police') then
+    if isPolice() then
     local isPolice = true
     else
     local isPolice = false
@@ -886,7 +899,7 @@ AddEventHandler("civilian:alertPolice",function(basedistance,alertType,objPassed
             }
             if not dontcall[GetPedType(nearNPC)] then
                 ClearPedTasks(nearNPC)
-                TaskPlayAnim(nearNPC, "cellphone@", "cellphone_call_listen_base", 1.0, 1.0, -1, 49, 0, 0, 0, 0)
+                TaskPlayAnim(nearNPC, "cellphone@", "cellphone_call_listen_base", 1.0, 1.0, 2500, 49, 0, 0, 0, 0)
             end
         end
     end
@@ -921,7 +934,7 @@ AddEventHandler("civilian:alertPolice",function(basedistance,alertType,objPassed
                 AlertCheckLockpick(object)
             end
         end
-    elseif alertType == "robberyhouse" and not PlayerData.job.isPolice then
+    elseif alertType == "robberyhouse" and not isPolice() then
         AlertCheckRobbery2()
     end
 end)
@@ -1057,7 +1070,7 @@ function AlertFight()
         dispatchMessage = "Disturbance",
         blipSprite = 458,
         blipColor = 25,
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
     })
 
     TriggerServerEvent('erp-dispatch:combatAlert', currentPos)
@@ -1086,7 +1099,7 @@ function AlertFight()
                     z = newPos.z
                     },
                     dispatchMessage = "Car fleeing 10-15",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
                 })
                 TriggerServerEvent('erp-dispatch:combatAlert', newPos)
             end
@@ -1104,12 +1117,12 @@ function AlertGunShot(isHunting, sentWeapon) -- Check for automatic, change prio
         local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
 
         local vehicleData = GetVehicleDescription() or {}
-        local initialTenCode = "10-60"
+        local initialTenCode = "10-13"
         local isAuto = KnownWeapons[sentWeapon]['isAuto']
 
-        TriggerServerEvent('erp-dispatch:gunshotAlert', currentPos, isAuto, PlayerData.job.isPolice)
+        TriggerServerEvent('erp-dispatch:gunshotAlert', currentPos, isAuto, isPolice())
 
-        local job = {"police","bcso","pa","sast","sapr","sasp","doc"}
+        local job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
         --if isHunting then job = {"sapr"} end
 
         TriggerServerEvent('dispatch:svNotify', {
@@ -1128,7 +1141,7 @@ function AlertGunShot(isHunting, sentWeapon) -- Check for automatic, change prio
             y = currentPos.y,
             z = currentPos.z
             },
-            dispatchMessage = "Shots Fired",
+            dispatchMessage = "Střelba",
             job = job
         })
 
@@ -1156,9 +1169,9 @@ function AlertGunShot(isHunting, sentWeapon) -- Check for automatic, change prio
                         z = newPos.z
                         },
                         dispatchMessage = "Car fleeing 10-60",
-                        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
+                        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
                     })
-                    TriggerServerEvent('erp-dispatch:gunshotAlert', newPos, false, PlayerData.job.isPolice)
+                    TriggerServerEvent('erp-dispatch:gunshotAlert', newPos, false, isPolice())
                 end
                 return
             end)
@@ -1166,15 +1179,9 @@ function AlertGunShot(isHunting, sentWeapon) -- Check for automatic, change prio
     end
 end
 
-RegisterNetEvent('drugsalecallpolice')
-AddEventHandler("drugsalecallpolice",function()
-    DrugSale()
-end)
-
 RegisterCommand('911', function(source, args, rawCommand)
     local msg = rawCommand:sub(5)
     if string.len(msg) > 0 then
-        local plyData = ESX.GetPlayerData()
         local locationInfo = GetStreetAndZone()
         local gender = IsPedMale(playerPed)
         local currentPos = GetEntityCoords(playerPed)
@@ -1190,25 +1197,23 @@ RegisterCommand('911', function(source, args, rawCommand)
                 priority = 1,
                 origin = { x = currentPos.x, y = currentPos.y, z = currentPos.z },
                 dispatchMessage = "911 Call",
-                name = plyData['firstname']..' '..plyData['lastname'],
-                number =  plyData['phone_number'],
-                job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"},
+                name = playerosdatos.name,
+                number =  playerosdatos.phonenumber,
+                job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"},
                 information = msg
             })
         end
     else
         exports['erp_notifications']:SendAlert('inform', 'Please put a reason after the 911')
     end
-end)
+end, false)
 
 RegisterCommand('311', function(source, args, rawCommand)
     local msg = rawCommand:sub(5)
     if string.len(msg) > 0 then
-        local plyData = ESX.GetPlayerData()
         local locationInfo = GetStreetAndZone()
         local gender = IsPedMale(playerPed)
         local currentPos = GetEntityCoords(playerPed)
-		print(ESX.DumpTable(ESX.GetPlayerData()))
 
         TriggerEvent('dp:playEmote', "phone")
 		local rfl = 100
@@ -1221,74 +1226,16 @@ RegisterCommand('311', function(source, args, rawCommand)
                 priority = 2,
                 origin = { x = currentPos.x, y = currentPos.y, z = currentPos.z },
                 dispatchMessage = "311 Call",
-                name = plyData['firstName']..' '..plyData['lastName'],
-                number =  plyData['phone_number'],
-                job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"},
+                name = playerosdatos.name,
+                number =  playerosdatos.phonenumber,
+                job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"},
                 information = msg
             })
         end
     else
         exports['erp_notifications']:SendAlert('inform', 'Please put a reason after the 311')
     end
-end)
-
-
-function DrugSale()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local initialTenCode = "10-99"
-
-    TriggerServerEvent('erp-dispatch:drugsale', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = initialTenCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        priority = 2,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Suspicious Hand-off",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 5 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(7500, 12500))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = initialTenCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    priority = 2,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                    x = newPos.x,
-                    y = newPos.y,
-                    z = newPos.z
-                    },
-                    dispatchMessage = "Car Fleeing 10-99",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:drugsale', newPos)
-            end
-            return
-        end)
-    end
-end
+end, false)
 
 function CarCrash()
     local locationInfo = GetStreetAndZone()
@@ -1317,486 +1264,8 @@ function CarCrash()
             z = currentPos.z
         },
         dispatchMessage = "Vehicle Crash",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
     })
-end
-
-function AlertCheckLockpick(object)
-
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-
-    local vehicleData = GetVehicleDescription(currentVeh) or {}
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:vehicletheft', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        model = vehicleData.model,
-        plate = vehicleData.plate,
-        firstColor = vehicleData.firstColor,
-        secondColor = vehicleData.secondColor,
-        heading = vehicleData.heading,
-        priority = 3,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Vehicle Theft",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-end
-
-
-function AlertpersonRobbed()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:houserobbery', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        priority = 2,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Store Robbery",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 3 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(20000, 25000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 2,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                    x = newPos.x,
-                    y = newPos.y,
-                    z = newPos.z
-                    },
-                    dispatchMessage = "Vehicle fleeing 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
-            end
-            return
-        end)
-    end 
-end
-
-RegisterNetEvent('erp-dispatch:houserobbery:force')
-AddEventHandler("erp-dispatch:houserobbery:force",function()
-    AlertCheckRobbery2()
-end)
-
-function AlertCheckRobbery2()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-33"
-
-    TriggerServerEvent('erp-dispatch:houserobbery', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 2,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Breaking and entering",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 3 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(12500, 15000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                    x = newPos.x,
-                    y = newPos.y,
-                    z = newPos.z
-                    },
-                    dispatchMessage = "Car fleeing 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
-            end
-            return
-        end)
-    end
-end
-
-function AlertBankTruck()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:banktruck', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Bank Truck",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(12500, 15000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading Bank Truck",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:banktruck', newPos)
-            end
-            return
-        end)
-    end
-end
-
-function AlertArt()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:art', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Art Gallery",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(12500, 15000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading Bank Truck",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:art', newPos)
-            end
-            return
-        end)
-    end
-end
-
-function AlertG6()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:g6', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Gruppe Sechs Alarm",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-end
-
-function AlertJewelRob()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:jewel', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Vangelico Robbery",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(12500, 15000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:jewel', newPos)
-            end
-            return
-        end)
-    end
-end
-
-function AlertJailBreak()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local dispatchCode = "10-98"
-
-    TriggerServerEvent('erp-dispatch:blip:jailbreak', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Jail Break in Progress",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(17500, 25000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarFleeing',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading 10-98",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-
-                TriggerServerEvent('erp-dispatch:blip:jailbreak', newPos)
-            end
-            return
-        end)
-    end
-end
-
-function AlertPaletoRobbery()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Paleto Robbery",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(17500, 25000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
-            end
-            return
-        end)
-    end
 end
 
 function AlertCarBoost(boosted)
@@ -1827,7 +1296,7 @@ function AlertCarBoost(boosted)
             z = currentPos.z
         },
         dispatchMessage = "Car Boosting",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
     })
 
     Citizen.CreateThread(function()
@@ -1842,251 +1311,21 @@ function AlertCarBoost(boosted)
     end)
 end
 
-function AlertFleecaRobbery()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Fleeca Robbery",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(17500, 25000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
-            end
-            return
-        end)
-    end
-end
-
-RegisterNetEvent('erp-dispatch:drugjob')
-AddEventHandler("erp-dispatch:drugjob",function()
-  AlertDrugJob()
-end)
-
-RegisterNetEvent('erp-dispatch:bankrobbery')
-AddEventHandler("erp-dispatch:bankrobbery",function()
-  AlertFleecaRobbery()
-end)
-
-RegisterNetEvent('erp-dispatch:paleto:bankrobbery')
-AddEventHandler("erp-dispatch:paleto:bankrobbery",function()
- AlertPaletoRobbery()
-end)
-
-RegisterNetEvent('erp-dispatch:carboost')
-AddEventHandler("erp-dispatch:carboost",function(boosted)
-  AlertCarBoost(boosted)
-end)
-
-RegisterNetEvent('erp-dispatch:bankrobbery:pacific')
-AddEventHandler("erp-dispatch:bankrobbery:pacific",function()
-  AlertPacificRobbery()
-end)
-
-function AlertPacificRobbery()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = locationInfo,
-        gender = gender,
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Pacific Standard Heist",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(17500, 25000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
-            end
-            return
-        end)
-    end
-end
-
-function AlertPowerplant()
-    local locationInfo = GetStreetAndZone()
-    local gender = IsPedMale(playerPed)
-    local currentPos = GetEntityCoords(playerPed)
-    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
-    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
-    local dispatchCode = "10-90"
-
-    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
-
-    TriggerServerEvent('dispatch:svNotify', {
-        dispatchCode = dispatchCode,
-        firstStreet = "Senora Way, Palmer-Taylor Power Station",
-        gender = gender,
-        priority = 1,
-        origin = {
-            x = currentPos.x,
-            y = currentPos.y,
-            z = currentPos.z
-        },
-        dispatchMessage = "Powerplant Hit",
-        job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-    })
-
-    if math.random(10) > 2 and not isInVehicle then
-        CreateThread(function()
-            Wait(math.random(17500, 25000))
-            if IsPedInAnyVehicle(PlayerPedId()) then
-                local vehicleData = GetVehicleDescription() or {}
-                local newPos = GetEntityCoords(PlayerPedId())
-                local locationInfo = GetStreetAndZone()
-                TriggerServerEvent('dispatch:svNotify', {
-                    dispatchCode = 'CarEvading',
-                    relatedCode = dispatchCode,
-                    firstStreet = locationInfo,
-                    gender = gender,
-                    model = vehicleData.model,
-                    plate = vehicleData.plate,
-                    priority = 1,
-                    firstColor = vehicleData.firstColor,
-                    secondColor = vehicleData.secondColor,
-                    heading = vehicleData.heading,
-                    origin = {
-                        x = newPos.x,
-                        y = newPos.y,
-                        z = newPos.z
-                    },
-                    dispatchMessage = "Evading 10-90",
-                    job = {"police","bcso","pa","sast","sapr","sasp","doc"}
-                })
-                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
-            end
-            return
-        end)
-    end
-end
-
-RegisterNetEvent('erp-dispatch:jailbreak')
-AddEventHandler("erp-dispatch:jailbreak",function()
-  AlertJailBreak()
-end)
-
-RegisterNetEvent('client:erp-dispatch:jewelrobbery')
-AddEventHandler("client:erp-dispatch:jewelrobbery",function()
-  AlertJewelRob()
-end)
-
-RegisterNetEvent('erp-dispatch:storerobbery')
-AddEventHandler("erp-dispatch:storerobbery",function()
-  AlertpersonRobbed(vehicle)
-end)
-
-RegisterNetEvent('erp-dispatch:carjacking')
-AddEventHandler("erp-dispatch:carjacking",function()
-  AlertCheckLockpick(object)
-end)
-
-RegisterNetEvent('erp-police:downplayer')
-AddEventHandler("erp-police:downplayer",function()
-    AlertDeath()
-end)
-
-RegisterNetEvent('erp-dispatch:AlertG6')
-AddEventHandler("erp-dispatch:AlertG6",function()
-    AlertG6()
-end)
-
-
 local tenThirteenAC = false
 
 RegisterNetEvent('police:tenThirteenA')
 AddEventHandler('police:tenThirteenA', function()
     if tenThirteenAC then return end;
     
-    if PlayerData.job.isPolice then	
+    if isPolice() then	
        
         local pos = GetEntityCoords(PlayerPedId(),  true)
-        local plyData = ESX.GetPlayerData()
 
 		TriggerServerEvent("dispatch:svNotify", {
 			dispatchCode = "10-13A",
 			firstStreet = GetStreetAndZone(),
-            name = plyData['firstname']..' '..plyData['lastname'],
-            number =  plyData['phone_number'],
+            name = playerosdatos.name,
+            number =  playerosdatos.phonenumber,
             priority = 1,
             isDead = true,
 			dispatchMessage = "Officer Down",
@@ -2095,7 +1334,7 @@ AddEventHandler('police:tenThirteenA', function()
 				y = pos.y,
 				z = pos.z
             },
-            job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
+            job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
         })
         
         TriggerServerEvent('erp-dispatch:policealertA', pos)
@@ -2111,9 +1350,9 @@ end)
 
 RegisterNetEvent('erp-dispatch:policealertA')
 AddEventHandler('erp-dispatch:policealertA', function(targetCoords)
-    if (PlayerData.job.name == 'ambulance' or PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if (PlayerData.job.name == 'ambulance' or isPolice()) then	
 		local alpha = 250
-		local policedown = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local policedown = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(policedown,  126)
 		SetBlipColour(policedown,  1)
@@ -2143,16 +1382,15 @@ RegisterNetEvent('police:tenThirteenB')
 AddEventHandler('police:tenThirteenB', function()
     if tenThirteenBC then return end;
     
-    if PlayerData.job.isPolice then
+    if isPolice() then
         local pos = GetEntityCoords(PlayerPedId(),  true)
         
-        local plyData = ESX.GetPlayerData()
 
 		TriggerServerEvent("dispatch:svNotify", {
-			dispatchCode = "10-13B",
+			dispatchCode = "10-99",
 			firstStreet = GetStreetAndZone(),
-            name = plyData['firstname']..' '..plyData['lastname'],
-            number =  plyData['phone_number'],
+            name = playerosdatos.name,
+            number =  playerosdatos.phonenumber,
             priority = 1,
             isDead = true,
 			dispatchMessage = "Officer Down",
@@ -2161,7 +1399,7 @@ AddEventHandler('police:tenThirteenB', function()
 				y = pos.y,
 				z = pos.z
             },
-            job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
+            job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
         })
 
         CreateThread(function()
@@ -2176,18 +1414,21 @@ end)
 
 RegisterNetEvent('erp-dispatch:policealertB')
 AddEventHandler('erp-dispatch:policealertB', function(targetCoords)
-    if (PlayerData.job.name == 'ambulance' or PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if (PlayerData.job.name == 'ambulance' or isPolice()) then	
 		local alpha = 250
-		local policedown2 = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local policedown2 = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(policedown2,  126)
 		SetBlipColour(policedown2,  1)
 		SetBlipScale(policedown2, 1.3)
 		SetBlipAsShortRange(policedown2,  1)
 		BeginTextCommandSetBlipName("STRING")
-		AddTextComponentString('10-13B Officer Down')
+		AddTextComponentString('10-99 Officer Down')
 		EndTextCommandSetBlipName(policedown2)
-		PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+        for i = 1, 7, 1 do
+            PlaySoundFrontend(GetSoundId(), "Beep_Red", "DLC_HEIST_HACKING_SNAKE_SOUNDS", 1)
+            Citizen.Wait(200)
+        end
 
 		while alpha ~= 0 do
 			Citizen.Wait(120 * 4)
@@ -2207,9 +1448,9 @@ end)
 RegisterNetEvent('erp-dispatch:vehiclecrash')
 AddEventHandler('erp-dispatch:vehiclecrash', function(targetCoords)
     
-    if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if isPolice() then	
 		local alpha = 250
-		local injured = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local injured = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(injured,  488)
 		SetBlipColour(injured,  1)
@@ -2238,9 +1479,9 @@ end)
 RegisterNetEvent('erp-dispatch:vehicletheft')
 AddEventHandler('erp-dispatch:vehicletheft', function(targetCoords)
     
-    if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if isPolice() then	
 		local alpha = 250
-		local thiefBlip = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local thiefBlip = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(thiefBlip,  488)
 		SetBlipColour(thiefBlip,  1)
@@ -2269,9 +1510,9 @@ end)
 RegisterNetEvent('erp-dispatch:storerobbery')
 AddEventHandler('erp-dispatch:storerobbery', function(targetCoords)
     
-    if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if isPolice() then	
 		local alpha = 250
-		local store = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local store = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipHighDetail(store, true)
 		SetBlipSprite(store,  52)
@@ -2279,9 +1520,9 @@ AddEventHandler('erp-dispatch:storerobbery', function(targetCoords)
 		SetBlipScale(store, 1.3)
 		SetBlipAsShortRange(store,  1)
 		BeginTextCommandSetBlipName("STRING")
-		AddTextComponentString('10-90 Robbery In Progress')
+		AddTextComponentString('10-68 Robbery In Progress')
         EndTextCommandSetBlipName(store)
-        TriggerEvent("erp-sounds:PlayOnOne","metaldetected",0.1)
+        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
 
 		while alpha ~= 0 do
 			Citizen.Wait(120 * 4)
@@ -2296,14 +1537,174 @@ AddEventHandler('erp-dispatch:storerobbery', function(targetCoords)
   end
 end)
 
+---- Fleeca Robbery ----
+
+RegisterNetEvent('erp-dispatch:fleecarobbery')
+AddEventHandler('erp-dispatch:fleecarobbery', function(targetCoords)
+    
+    if isPolice() then	
+		local alpha = 250
+		local store = AddBlipForCoord(targetCoords.xyz)
+
+		SetBlipHighDetail(store, true)
+		SetBlipSprite(store,  276)
+		SetBlipColour(store,  1)
+		SetBlipScale(store, 1.3)
+		SetBlipAsShortRange(store,  1)
+		BeginTextCommandSetBlipName("STRING")
+		AddTextComponentString('10-68 Fleeca Bank Robbery In Progress')
+        EndTextCommandSetBlipName(store)
+        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+
+		while alpha ~= 0 do
+			Citizen.Wait(120 * 4)
+			alpha = alpha - 1
+			SetBlipAlpha(store, alpha)
+
+		if alpha == 0 then
+			RemoveBlip(store)
+		return
+      end
+    end
+  end
+end)
+
+---- Paleto Robbery ----
+
+RegisterNetEvent('erp-dispatch:paletorobbery')
+AddEventHandler('erp-dispatch:paletorobbery', function(targetCoords)
+    
+    if isPolice() then	
+		local alpha = 250
+		local store = AddBlipForCoord(targetCoords.xyz)
+
+		SetBlipHighDetail(store, true)
+		SetBlipSprite(store,  276)
+		SetBlipColour(store,  1)
+		SetBlipScale(store, 1.3)
+		SetBlipAsShortRange(store,  1)
+		BeginTextCommandSetBlipName("STRING")
+		AddTextComponentString('10-68 Paleto Bank Robbery In Progress')
+        EndTextCommandSetBlipName(store)
+        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+
+		while alpha ~= 0 do
+			Citizen.Wait(120 * 4)
+			alpha = alpha - 1
+			SetBlipAlpha(store, alpha)
+
+		if alpha == 0 then
+			RemoveBlip(store)
+		return
+      end
+    end
+  end
+end)
+
+---- Pacific Robbery ----
+
+RegisterNetEvent('erp-dispatch:pacificrobbery')
+AddEventHandler('erp-dispatch:pacificrobbery', function(targetCoords)
+    
+    if isPolice() then	
+		local alpha = 250
+		local store = AddBlipForCoord(targetCoords.xyz)
+
+		SetBlipHighDetail(store, true)
+		SetBlipSprite(store,  276)
+		SetBlipColour(store,  1)
+		SetBlipScale(store, 1.3)
+		SetBlipAsShortRange(store,  1)
+		BeginTextCommandSetBlipName("STRING")
+		AddTextComponentString('10-68 Pacific Bank Robbery In Progress')
+        EndTextCommandSetBlipName(store)
+        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+
+		while alpha ~= 0 do
+			Citizen.Wait(120 * 4)
+			alpha = alpha - 1
+			SetBlipAlpha(store, alpha)
+
+		if alpha == 0 then
+			RemoveBlip(store)
+		return
+      end
+    end
+  end
+end)
+
+---- Vangelico Robbery ----
+
+RegisterNetEvent('erp-dispatch:vangelicorobbery')
+AddEventHandler('erp-dispatch:vangelicorobbery', function(targetCoords)
+    
+    if isPolice() then	
+		local alpha = 250
+		local vangelico = AddBlipForCoord(targetCoords.xyz)
+
+		SetBlipHighDetail(vangelico, true)
+		SetBlipSprite(vangelico,  675)
+		SetBlipColour(vangelico,  1)
+		SetBlipScale(vangelico, 1.3)
+		SetBlipAsShortRange(vangelico,  1)
+		BeginTextCommandSetBlipName("STRING")
+		AddTextComponentString('10-68 Vangelico Robbery In Progress')
+        EndTextCommandSetBlipName(vangelico)
+        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+
+		while alpha ~= 0 do
+			Citizen.Wait(120 * 4)
+			alpha = alpha - 1
+			SetBlipAlpha(vangelico, alpha)
+
+		if alpha == 0 then
+			RemoveBlip(vangelico)
+		return
+      end
+    end
+  end
+end)
+
+---- Suspicious Activity ----
+
+RegisterNetEvent('erp-dispatch:suspiciousactivity')
+AddEventHandler('erp-dispatch:suspiciousactivity', function(targetCoords)
+    
+    if isPolice() then	
+		local alpha = 250
+		local suspiciousactivity = AddBlipForCoord(targetCoords.xyz)
+
+		SetBlipHighDetail(suspiciousactivity, true)
+		SetBlipSprite(suspiciousactivity,  51)
+		SetBlipColour(suspiciousactivity,  1)
+		SetBlipScale(suspiciousactivity, 1.3)
+		SetBlipAsShortRange(suspiciousactivity,  1)
+		BeginTextCommandSetBlipName("STRING")
+		AddTextComponentString('10-66 Suspicious Activity In Progress')
+        EndTextCommandSetBlipName(suspiciousactivity)
+        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+
+		while alpha ~= 0 do
+			Citizen.Wait(120 * 4)
+			alpha = alpha - 1
+			SetBlipAlpha(suspiciousactivity, alpha)
+
+		if alpha == 0 then
+			RemoveBlip(suspiciousactivity)
+		return
+      end
+    end
+  end
+end)
+
 ---- House Robbery ----
 
 RegisterNetEvent('erp-dispatch:houserobbery')
 AddEventHandler('erp-dispatch:houserobbery', function(targetCoords)
     
-    if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if isPolice() then	
 		local alpha = 250
-		local burglary = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local burglary = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipHighDetail(burglary, true)
 		SetBlipSprite(burglary,  411)
@@ -2333,9 +1734,9 @@ end)
 RegisterNetEvent('erp-dispatch:banktruck')
 AddEventHandler('erp-dispatch:banktruck', function(targetCoords)
     
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local truck = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local truck = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(truck,  477)
 		SetBlipColour(truck,  47)
@@ -2362,9 +1763,9 @@ end)
 RegisterNetEvent('erp-dispatch:art')
 AddEventHandler('erp-dispatch:art', function(targetCoords)
     
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local gallery = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local gallery = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(gallery,  617)
 		SetBlipColour(gallery,  47)
@@ -2391,9 +1792,9 @@ end)
 RegisterNetEvent('erp-dispatch:jewel')
 AddEventHandler('erp-dispatch:jewel', function(targetCoords)
     
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local truck = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local truck = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(truck,  434)
 		SetBlipColour(truck,  66)
@@ -2419,14 +1820,14 @@ end)
 
 RegisterNetEvent('erp-dispatch:bankwobbewy')
 AddEventHandler('erp-dispatch:bankwobbewy', function(targetCoords)
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local bankwobbewy = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local bankwobbewy = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(bankwobbewy,  161)
 		SetBlipColour(bankwobbewy,  46)
 		SetBlipScale(bankwobbewy, 1.5)
-		SetBlipAsShortRange(Blip,  1)
+		SetBlipAsShortRange(bankwobbewy,  1)
 		BeginTextCommandSetBlipName("STRING")
 		AddTextComponentString('10-90 Bank Robbery In Progress')
         EndTextCommandSetBlipName(bankwobbewy)
@@ -2447,9 +1848,9 @@ end)
 
 RegisterNetEvent('erp-dispatch:g6')
 AddEventHandler('erp-dispatch:g6', function(targetCoords)
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local g6 = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local g6 = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(g6, 478)
 		SetBlipColour(g6, 49)
@@ -2475,9 +1876,9 @@ end)
 
 RegisterNetEvent('erp-dispatch:carboosting')
 AddEventHandler('erp-dispatch:carboosting', function(targetCoords, vehicle, alert)
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local carboosting = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local carboosting = AddBlipForCoord(targetCoords.xyz)
         local hacked = false
         if alert then
             TriggerEvent("erp-sounds:PlayOnOne","metaldetected",0.1)
@@ -2506,9 +1907,9 @@ end)
 RegisterNetEvent('erp-dispatch:yachtheist')
 AddEventHandler('erp-dispatch:yachtheist', function(targetCoords)
     
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
-		local truck = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local truck = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(truck,  455)
 		SetBlipColour(truck,  3)
@@ -2537,7 +1938,7 @@ end)
 RegisterNetEvent('erp-dispatch:drugsale')
 AddEventHandler('erp-dispatch:drugsale', function(sentCoords)
     
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
 		local drugsale = AddBlipForCoord(sentCoords)
 
@@ -2548,7 +1949,10 @@ AddEventHandler('erp-dispatch:drugsale', function(sentCoords)
 		BeginTextCommandSetBlipName("STRING")
 		AddTextComponentString('10-99 In Progress')
         EndTextCommandSetBlipName(drugsale)
-        PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+        for i = 1, 7, 1 do
+            PlaySoundFrontend(GetSoundId(), "Beep_Red", "DLC_HEIST_HACKING_SNAKE_SOUNDS", 1)
+            Citizen.Wait(200)
+        end
 
 		while alpha ~= 0 do
 			Citizen.Wait(120 * 4)
@@ -2568,7 +1972,7 @@ end)
 RegisterNetEvent('erp-dispatch:blip:jailbreak')
 AddEventHandler('erp-dispatch:blip:jailbreak', function(targetCoords)
     
-	if (PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+	if isPolice() then	
 		local alpha = 250
 		local jail = AddBlipForCoord(1779.65, 2590.39, 50.49)
 
@@ -2612,8 +2016,7 @@ end)
 
 RegisterNetEvent('dispatch:clNotify')
 AddEventHandler('dispatch:clNotify', function(sNotificationData, sNotificationId, sender)
-  print(ESX.DumpTable(sNotificationData))
-  if ESX.GetPlayerData().job.name == 'police' then
+  if isPolice() then
   local ispolice = true
   else
   local ispolice = false
@@ -2646,10 +2049,9 @@ AddEventHandler('dispatch:clNotify', function(sNotificationData, sNotificationId
             isPolice = true
         })
     end
-    if PlayerData.job.duty == 0 then return end;
     local shouldAlert = false
     for i=1, #sNotificationData['job'] do
-        if sNotificationData['job'][i] == ESX.GetPlayerData().job.name then
+        if sNotificationData['job'][i] == PlayerData.job.name then
             shouldAlert = true
             break
         end
@@ -2677,7 +2079,7 @@ end)
 
 RegisterNetEvent('erp-dispatch:setBlip')
 AddEventHandler('erp-dispatch:setBlip', function(type, pos, id)
-    if (PlayerData.job.isPolice or PlayerData.job.name == 'ambulance' or PlayerData.job.name == 'cmmc') and PlayerData.job.duty == 1 then	
+    if (isPolice() or PlayerData.job.name == 'ambulance' or PlayerData.job.name == 'cmmc') then	
         PlaySoundFrontend(-1, "SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET", false)
         PlaySoundFrontend(-1, "Event_Start_Text", "GTAO_FM_Events_Soundset", 0)
             
@@ -2749,16 +2151,15 @@ AddEventHandler('ems:tenThirteenA', function()
     if PlayerData.job.name == 'ambulance' then	
        
         local pos = GetEntityCoords(PlayerPedId(),  true)
-        local plyData = ESX.GetPlayerData()
 
 
-        local job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
+        local job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
 
 		TriggerServerEvent("dispatch:svNotify", {
 			dispatchCode = "10-14A",
 			firstStreet = GetStreetAndZone(),
-            name = plyData['firstname']..' '..plyData['lastname'],
-            number =  plyData['phone_number'],
+            name = playerosdatos.name,
+            number =  playerosdatos.phonenumber,
             priority = 1,
             isDead = true,
 			dispatchMessage = "Medic Down",
@@ -2783,9 +2184,9 @@ end)
 
 RegisterNetEvent('erp-dispatch:emsalertA')
 AddEventHandler('erp-dispatch:emsalertA', function(targetCoords)
-    if (PlayerData.job.name == 'ambulance' or PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if (PlayerData.job.name == 'ambulance' or isPolice()) then	
 		local alpha = 250
-		local policedown = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local policedown = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(policedown,  126)
 		SetBlipColour(policedown,  3)
@@ -2816,13 +2217,12 @@ AddEventHandler('ems:tenThirteenB', function()
     if PlayerData.job.name == 'ambulance' then	
         local pos = GetEntityCoords(PlayerPedId(),  true)
         
-        local plyData = ESX.GetPlayerData()
 
 		TriggerServerEvent("dispatch:svNotify", {
-			dispatchCode = "10-14B",
+			dispatchCode = "10-99",
 			firstStreet = GetStreetAndZone(),
-            name = plyData['firstname']..' '..plyData['lastname'],
-            number =  plyData['phone_number'],
+            name = playerosdatos.name,
+            number =  playerosdatos.phonenumber,
             priority = 1,
             isDead = true,
 			dispatchMessage = "Medic Down",
@@ -2831,7 +2231,7 @@ AddEventHandler('ems:tenThirteenB', function()
 				y = pos.y,
 				z = pos.z
             },
-            job = {"police","bcso","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
+            job = {"police","sheriff","pa","sast","sapr","sasp","doc","ambulance", "cmmc"}
         })
 
         CreateThread(function()
@@ -2846,18 +2246,21 @@ end)
 
 RegisterNetEvent('erp-dispatch:emsalertB')
 AddEventHandler('erp-dispatch:emsalertB', function(targetCoords) 
-    if (PlayerData.job.name == 'ambulance' or PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if (PlayerData.job.name == 'ambulance' or isPolice()) then	
 		local alpha = 250
-		local policedown2 = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local policedown2 = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(policedown2,  126)
 		SetBlipColour(policedown2,  3)
 		SetBlipScale(policedown2, 1.3)
 		SetBlipAsShortRange(policedown2,  1)
 		BeginTextCommandSetBlipName("STRING")
-		AddTextComponentString('10-13B Medic Down')
+		AddTextComponentString('10-99 Medic Down')
 		EndTextCommandSetBlipName(policedown2)
-		PlaySound(-1, "Lose_1st", "GTAO_FM_Events_Soundset", 0, 0, 1)
+		for i = 1, 7, 1 do
+            PlaySoundFrontend(GetSoundId(), "Beep_Red", "DLC_HEIST_HACKING_SNAKE_SOUNDS", 1)
+            Citizen.Wait(200)
+        end
 
 		while alpha ~= 0 do
 			Citizen.Wait(120 * 4)
@@ -2873,9 +2276,9 @@ AddEventHandler('erp-dispatch:emsalertB', function(targetCoords)
 end)
 
 RegisterNetEvent('erp-dispatch:mz:lockdown', function(targetCoords) 
-    if (PlayerData.job.name == 'ambulance' or PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if (PlayerData.job.name == 'ambulance' or isPolice()) then	
 		local alpha = 250
-		local policedown2 = AddBlipForCoord(targetCoords.x, targetCoords.y, targetCoords.z)
+		local policedown2 = AddBlipForCoord(targetCoords.xyz)
 
 		SetBlipSprite(policedown2,  186)
 		SetBlipColour(policedown2,  1)
@@ -2900,7 +2303,1014 @@ RegisterNetEvent('erp-dispatch:mz:lockdown', function(targetCoords)
 end)
 
 RegisterNetEvent('erp-dispatch:mz:lockdownoff', function(targetCoords) 
-    if (PlayerData.job.name == 'ambulance' or PlayerData.job.isPolice) and PlayerData.job.duty == 1 then	
+    if (PlayerData.job.name == 'ambulance' or isPolice()) then	
         exports['erp_notifications']:SendAlert('success', 'Mount Zonah is no longer on lockdown', 10000)
     end
 end)
+
+function isPolice()
+    if PlayerData.job.name == 'police' or PlayerData.job.name == 'sheriff' then
+        return true
+    end
+
+    return false
+end
+
+RegisterCommand('panic', function(source, args, rawCommand)
+    if isPolice() then
+        TriggerEvent('police:tenThirteenB')
+    elseif PlayerData.job.name == 'ambulance' then
+        TriggerEvent('ems:tenThirteenB')
+    else
+        exports.ox_lib:notify({
+            title = "Tlačítko",
+            description = "Tohle tlačítko je pro štatni zložky",
+            type = 'error'
+        })
+    end
+end, false)
+
+RegisterKeyMapping('panic', '<FONT FACE="Fire Sans">Stisknutí nouzového tlačítka (Štatna Zložka)</FONT>', 'keyboard', '')
+
+--- Robberies/Drugs ---
+
+function DrugSale()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local initialTenCode = "10-99"
+
+    TriggerServerEvent('erp-dispatch:drugsale', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = initialTenCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Suspicious Hand-off",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Vehicle fleeing 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:drugsale', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertCheckLockpick(object)
+
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+
+    local vehicleData = GetVehicleDescription(currentVeh) or {}
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:vehicletheft', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        model = vehicleData.model,
+        plate = vehicleData.plate,
+        firstColor = vehicleData.firstColor,
+        secondColor = vehicleData.secondColor,
+        heading = vehicleData.heading,
+        priority = 3,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vehicle Theft",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+end
+
+function StoreRobbery(currentPos)
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(PlayerPedId())
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-68"
+
+    TriggerServerEvent('erp-dispatch:storerobbery', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vykrádání obchodů",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = '10-80',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Ujíždějící vozidlo",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end 
+end
+
+function FleecaRobbery(currentPos)
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(PlayerPedId())
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-68"
+
+    TriggerServerEvent('erp-dispatch:fleecarobbery', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vykrádání Fleeca Banky",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = '10-80',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Ujíždějící vozidlo",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end 
+end
+
+function PaletoRobbery(currentPos)
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(PlayerPedId())
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-68"
+
+    TriggerServerEvent('erp-dispatch:paletorobbery', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vykrádání Paleto Banky",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = '10-80',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Ujíždějící vozidlo",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end 
+end
+
+function PacificRobbery(currentPos)
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(PlayerPedId())
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-68"
+
+    TriggerServerEvent('erp-dispatch:pacificrobbery', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vykrádání Pacific Banky",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = '10-80',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Ujíždějící vozidlo",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end 
+end
+
+function VangelicoRobbery(currentPos)
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(PlayerPedId())
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-68"
+
+    TriggerServerEvent('erp-dispatch:vangelicorobbery', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vykrádání Vangelico",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = '10-80',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Ujíždějící vozidlo",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end 
+end
+
+function SuspiciousActivity(currentPos)
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(PlayerPedId())
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-66"
+
+    TriggerServerEvent('erp-dispatch:suspiciousactivity', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Podezřelá osoba",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(20000, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = '10-80',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 2,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Ujíždějící vozidlo",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end 
+end
+
+function AlertCheckRobbery2()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-33"
+
+    TriggerServerEvent('erp-dispatch:houserobbery', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 2,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Breaking and entering",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 3 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(12500, 15000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                    x = newPos.x,
+                    y = newPos.y,
+                    z = newPos.z
+                    },
+                    dispatchMessage = "Car fleeing 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:houserobbery', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertBankTruck()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:banktruck', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Bank Truck",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(12500, 15000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading Bank Truck",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:banktruck', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertArt()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:art', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Art Gallery",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(12500, 15000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading Bank Truck",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:art', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertG6()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:g6', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Gruppe Sechs Alarm",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+end
+
+function AlertJewelRob()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:jewel', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Vangelico Robbery",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(12500, 15000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:jewel', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertJailBreak()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-98"
+
+    TriggerServerEvent('erp-dispatch:blip:jailbreak', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Jail Break in Progress",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(17500, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarFleeing',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading 10-98",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+
+                TriggerServerEvent('erp-dispatch:blip:jailbreak', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertPaletoRobbery()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Paleto Robbery",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(17500, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertFleecaRobbery()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Fleeca Robbery",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(17500, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertPacificRobbery()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = locationInfo,
+        gender = gender,
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Pacific Standard Heist",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(17500, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
+            end
+            return
+        end)
+    end
+end
+
+function AlertPowerplant()
+    local locationInfo = GetStreetAndZone()
+    local gender = IsPedMale(playerPed)
+    local currentPos = GetEntityCoords(playerPed)
+    local isInVehicle = IsPedInAnyVehicle(PlayerPedId())
+    local currentVeh = GetVehiclePedIsIn(PlayerPedId(), false)
+    local dispatchCode = "10-90"
+
+    TriggerServerEvent('erp-dispatch:bankwobbewy', currentPos)
+
+    TriggerServerEvent('dispatch:svNotify', {
+        dispatchCode = dispatchCode,
+        firstStreet = "Senora Way, Palmer-Taylor Power Station",
+        gender = gender,
+        priority = 1,
+        origin = {
+            x = currentPos.x,
+            y = currentPos.y,
+            z = currentPos.z
+        },
+        dispatchMessage = "Powerplant Hit",
+        job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+    })
+
+    if math.random(10) > 2 and not isInVehicle then
+        CreateThread(function()
+            Wait(math.random(17500, 25000))
+            if IsPedInAnyVehicle(PlayerPedId()) then
+                local vehicleData = GetVehicleDescription() or {}
+                local newPos = GetEntityCoords(PlayerPedId())
+                local locationInfo = GetStreetAndZone()
+                TriggerServerEvent('dispatch:svNotify', {
+                    dispatchCode = 'CarEvading',
+                    relatedCode = dispatchCode,
+                    firstStreet = locationInfo,
+                    gender = gender,
+                    model = vehicleData.model,
+                    plate = vehicleData.plate,
+                    priority = 1,
+                    firstColor = vehicleData.firstColor,
+                    secondColor = vehicleData.secondColor,
+                    heading = vehicleData.heading,
+                    origin = {
+                        x = newPos.x,
+                        y = newPos.y,
+                        z = newPos.z
+                    },
+                    dispatchMessage = "Evading 10-90",
+                    job = {"police","sheriff","pa","sast","sapr","sasp","doc"}
+                })
+                TriggerServerEvent('erp-dispatch:bankwobbewy', newPos)
+            end
+            return
+        end)
+    end
+end
